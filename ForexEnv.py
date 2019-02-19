@@ -42,6 +42,8 @@ class ForexEnv(gym.Env):
         self.OnePip = float(ml_variables['SymbolOnePip'])
         self.PipVal = float(ml_variables['SymbolPipValue'])
         self.MaxLossPerTrade = float(ml_variables['MaxLossPerTrade'])
+        self.BoxPips = float(ml_variables['PipsDivision'])
+        self.RiskRewardRatio = float(ml_variables['RiskRewardRatio'])
 
 
 
@@ -63,19 +65,70 @@ class ForexEnv(gym.Env):
         if self.action == BUY:
             if self.position == FLAT:
                 self.position = LONG
-                self.entryPrice = self.rawData[self.current_tick]
+                self.entryPrice = self.getPrice(self.current_tick)
+                self.stopLoss = self.entryPrice - (self.BoxPips * self.OnePip)
+                self.takeProfit = self.entryPrice + (self.BoxPips * self.OnePip * self.RiskRewardRatio)
                 self.portfolio = self.balance + self.calculateProfit()
 
             elif self.position == SHORT:
                 self.reward = self.calculateProfit()
                 self.balance = self.balance + self.reward
                 self.portfolio = self.balance
+                self.position = FLAT
+                self.sells += 1
+            else:
+                self.portfolio = self.balance + self.calculateProfit()
 
+        elif self.action == SELL:
+            if self.position == FLAT:
+                self.position = SHORT
+                self.entryPrice = self.rawData.iloc[self.current_tick]['Close']
+                self.portfolio = self.balance + self.calculateProfit()
+                self.stopLoss = self.entryPrice + (self.BoxPips * self.OnePip)
+                self.takeProfit = self.entryPrice - (self.BoxPips * self.OnePip * self.RiskRewardRatio)
+
+            elif self.position == LONG:
+                self.reward = self.calculateProfit()
+                self.balance = self.balance + self.reward
+                self.portfolio = self.balance
+                self.position = FLAT
+                self.buys += 1
+            else:
+                self.portfolio = self.balance + self.calculateProfit()
+
+        else:
 
 
     def updateBalance(self):
+        if self.position == LONG:
+            if self.getPrice(self.current_tick,type='L') <= self.stopLoss:
+                self.reward = self.calculateProfit()
+                self.balance = self.balance + self.reward
+                self.portfolio = self.balance
+                self.position = FLAT
+                self.buys += 1
+                self.lostBuys += 1
+
+        elif self.position == SHORT:
+
+            if self.getPrice(self.current_tick,type='H') >= self.stopLoss:
+                self.reward = self.calculateProfit()
+                self.balance = self.balance + self.reward
+                self.portfolio = self.balance
+                self.position = FLAT
+                self.sells += 1
+                self.lostSells += 1
 
 
+    def getPrice(self,index,type = 'C'):
+        if type == 'O':
+            return self.rawData.iloc[index]['Open']
+        elif type == 'H':
+            return self.rawData.iloc[index]['High']
+        elif type == 'L':
+            return self.rawData.iloc[index]['Low']
+        elif type == 'C':
+            return self.rawData.iloc[index]['Close']
 
     def calculateProfit(self):
         if self.position == LONG:
@@ -98,6 +151,8 @@ class ForexEnv(gym.Env):
         # Positions
         self.buys = 0
         self.sells = 0
+        self.lostBuys = 0
+        self.lostSells = 0
 
 
         # Clear the variables
