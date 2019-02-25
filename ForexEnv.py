@@ -35,7 +35,7 @@ class ForexEnv(gym.Env):
         self.split_point = data.split_point
         # Features
         self.n_features = self.df.shape[1]
-        self.shape = (self.window_size, self.n_features + 4)
+        self.shape = (self.window_size, self.n_features + 3)
 
         # Action space and Observation space
         self.action_space = spaces.Discrete(len(self.actions))
@@ -138,9 +138,10 @@ class ForexEnv(gym.Env):
 
     def updateState(self):
         one_hot_position = FXUtils.getOneHotEncoding(self.position, 3)
-        profit = self.calculateProfit()
+        #profit = self.calculateProfit()
+        #profit = self.portfolio - self.starting_balance
         # print("df : ", self.df[self.current_tick], " one hot : ",one_hot_position, " profit : ",[profit])
-        self.state = np.concatenate([self.df[self.current_tick], one_hot_position, [profit]])
+        self.state = np.concatenate([self.df[self.current_tick], one_hot_position])
         return self.state
 
 
@@ -169,7 +170,7 @@ class ForexEnv(gym.Env):
             if self.getPrice(self.current_tick,type='H') >= self.stopLoss:
                 profit = self.calculateProfit(type='H')
                 # self.reward += profit
-                self.balance = self.balance + self.reward
+                self.balance = self.balance + profit
                 self.portfolio = self.balance
                 self.position = FLAT
                 self.sells += 1
@@ -178,13 +179,25 @@ class ForexEnv(gym.Env):
             elif self.getPrice(self.current_tick, type='L') <= self.takeProfit and self.variables['UseTakeProfit'] == 'true':
                 profit = self.calculateProfit(type='T')
                 # self.reward += profit
-                self.balance = self.balance + self.reward
+                self.balance = self.balance + profit
                 self.portfolio = self.balance
                 self.position = FLAT
                 self.sells += 1
 
     def calculate_reward(self):
-        return self.portfolio - self.starting_balance
+        if self.position == FLAT:
+            negStaticReward = float(self.variables['TotalStaticNegativeReward'])
+            stepReward = (self.current_tick / self.df.shape[0]) * negStaticReward * 1.0
+        else:
+            stepReward = 0.0
+
+        if self.max_portfolio == -10000:
+            reward = 0.0
+        else:
+            reward = self.portfolio - self.max_portfolio
+        if self.portfolio > self.max_portfolio:
+            self.max_portfolio = self.portfolio
+        return reward - stepReward
 
     def getPrice(self,index,type = 'C'):
         if type == 'O':
@@ -234,6 +247,7 @@ class ForexEnv(gym.Env):
         self.starting_balance = self.balance
         self.portfolio = float(self.balance)
         self.profit = 0
+        self.max_portfolio = -10000
 
         self.action = HOLD
         self.position = FLAT

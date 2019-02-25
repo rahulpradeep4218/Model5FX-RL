@@ -21,6 +21,7 @@ def create_model(shape, n_actions):
     model = Sequential()
     #model.add(LSTM(64, input_shape=shape, return_sequences=True))
     #model.add(LSTM(64))
+    print("Input shape to the model : ",shape)
     model.add(Flatten(input_shape=shape))
     model.add(Dense(64))
     model.add(Activation('relu'))
@@ -73,7 +74,7 @@ def main():
             info = dqn.test(env_test, nb_episodes=1, visualize=False)
             #reward = info.history['episode_reward']
             reward = env_test.balance - env_test.starting_balance
-            print("reward : ",reward)
+            print("reward : ", reward)
             if reward > int(max_reward) and int(reward) != 0:
                 max_reward = int(reward)
                 np.array([info.history]).dump('./info/duel_dqn_reward_{0}_{1}.info'.format(env_test.symbol, max_reward))
