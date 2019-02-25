@@ -8,34 +8,44 @@ class ProcessedData:
     def __init__(self, inputSymbol, train_test_predict ="train"):
         sqlEngine = FXUtils.getSQLEngine()
         mlVariables = FXUtils.getMLVariables()
+        limitTable = int(mlVariables['LimitMLTrainTable'])
         self.symbol = inputSymbol
         self.train_test_split_ratio = float(mlVariables['RL-TrainTestSplit'])
+        self.train_test_predict = train_test_predict
 
         if train_test_predict == "train" or train_test_predict == "test":
-            tableSize = FXUtils.count_records(mlVariables['MLDataTableName'],"Symbol = '" + inputSymbol + "'")
+            if limitTable == 0:
+                tableSize = FXUtils.count_records(mlVariables['MLDataTableName'], "Symbol = '" + inputSymbol + "'")
+            else:
+                tableSize = limitTable
             splitPoint = int(tableSize * self.train_test_split_ratio)
             recordsAfterSplit = tableSize - splitPoint
+            print("table size : {0}, split point : {1}, records after split : {2}".format(tableSize, splitPoint, recordsAfterSplit))
 
         if train_test_predict == "train":
             tableName = mlVariables['MLDataTableName']
-            sqlQuery = "SELECT * FROM " + tableName + " WHERE Symbol = '" + inputSymbol + "' LIMIT " + splitPoint
+            sqlQuery = "SELECT * FROM " + tableName + " WHERE Symbol = '" + inputSymbol + "' ORDER BY Time LIMIT " + str(splitPoint)
             symbolPickle = {}
-            symbolPickle.scalers = {}
+            symbolPickle['scalers'] = {}
+            self.pickle = symbolPickle
 
         elif train_test_predict == "test":
             tableName = mlVariables['MLDataTableName']
-            sqlQuery = "SELECT * FROM " + tableName + " WHERE Symbol = '" + inputSymbol + "' LIMIT " + splitPoint + "," + recordsAfterSplit
+            sqlQuery = "SELECT * FROM " + tableName + " WHERE Symbol = '" + inputSymbol + "' ORDER BY Time LIMIT " + str(splitPoint) + "," + str(recordsAfterSplit)
 
 
         else:
             tableName = mlVariables['MLPredTableName']
             sqlQuery = "SELECT * FROM " + tableName + " WHERE Symbol = '"+inputSymbol+"' AND Status = 'DATA_READY'"
 
-        self.pickle = symbolPickle
+
         rawData = pd.read_sql_query(sqlQuery,sqlEngine)
-        rawData.set_index('Time')
+        rawData = rawData.set_index('Time')
         rawData['CloseShifted'] = rawData['Close'].shift(1)
-        rawData.dropna(axis=0)
+        thresh = 0.8 * len(rawData)
+        rawData = rawData.dropna(axis=1, thresh=thresh)
+        rawData = rawData.dropna(axis=0)
+        print("raw data 1st : ", rawData.head(1))
 
         df = rawData[['CloseShifted']].copy()
         df['Bar_HC'] = rawData['High'] - rawData['Close']
@@ -48,6 +58,7 @@ class ProcessedData:
 
         self.df = df
         self.rawData = rawData
+        self.split_point = splitPoint
 
     def addSimpleFeatures(self):
         mlVariables = FXUtils.getMLVariables()
@@ -55,8 +66,8 @@ class ProcessedData:
         addOnNumericalExcepList = mlVariables['Model5AddonFeaturesNumerical'].split(',')
         addOnNumClassesList = mlVariables['Model5AddonFeaturesNumClasses'].split(',')
         print("features : ", addOnFeaturesList)
-        print("numClasses : ",addOnNumClassesList)
-        for i,col in enumerate(addOnFeaturesList):
+        print("numClasses : ", addOnNumClassesList)
+        for i, col in enumerate(addOnFeaturesList):
             if col not in addOnNumericalExcepList:
                 self.df[col] = self.rawData[col]
                 self.df, colArr = FXUtils.getCategoricalColumnsFromDF(self.df, col, int(addOnNumClassesList[i]))
@@ -65,11 +76,15 @@ class ProcessedData:
                 self.df[col] = self.df[col].astype('float64')
 
     def apply_normalization(self):
-        for col in self.df.columns.values.tolist():
-            self.pickle['scalers'][col] = FXUtils.getNormalizedData(self.df[[col]])
-            self.df[col] = self.pickle['scalers'][col].transform(self.df[col])
-        pickle.dump(self.pickle,open("Pickles\\" + self.symbol + "-Pickle.pkl","wb"))
-
+        if self.train_test_predict == "train":
+            for col in self.df.columns.values.tolist():
+                self.pickle['scalers'][col] = FXUtils.getNormalizedData(self.df[[col]])
+                self.df[col] = self.pickle['scalers'][col].transform(self.df[[col]])
+            pickle.dump(self.pickle, open("Pickles\\" + self.symbol + "-Pickle.pkl", "wb"))
+        elif self.train_test_predict == "test":
+            symbolPickle = pickle.load(open("Pickles\\" + self.symbol + "-Pickle.pkl", "rb"))
+            for col in self.df.columns.values.tolist():
+                self.df[col] = symbolPickle['scalers'][col].transform(self.df[[col]])
 
 
 

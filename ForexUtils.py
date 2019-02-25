@@ -50,6 +50,32 @@ def count_records(table_name,condition):
     return count
 
 
+#### Function to drop a table in MySQL DB
+def drop_table(table_name):
+    sqlEng = getSQLEngine()
+    sqlEng.execute("DROP TABLE IF EXISTS " + table_name)
+
+
+#### Function to create a table in MySQL
+"""
+actions_table_details = {'name':'metaactions', 'col':['Action', 'Time'], 'type':['VARCHAR(20)', 'DATETIME'], 'null': [False,False]}
+"""
+def create_table_db(table_details):
+    action_table_sql = "CREATE TABLE IF NOT EXISTS `forex`.`" + table_details['name'] + "` ( `Id` INT NOT NULL AUTO_INCREMENT "
+    for count, col in enumerate(table_details['col']):
+        action_table_sql = action_table_sql + " , `" + col + "` " + table_details['type'][count]
+        if table_details['null'][count]:
+            action_table_sql = action_table_sql + " NULL"
+        else:
+            action_table_sql = action_table_sql + " NOT NULL"
+    action_table_sql += " , PRIMARY KEY (`Id`)) ENGINE=INNODB"
+    print("Create Table SQL : ",action_table_sql)
+    execute_query_db(action_table_sql)
+
+def execute_query_db(sql_query):
+    sqlEng = getSQLEngine()
+    sqlEng.execute(sql_query)
+
 def getNormalizedData(dataReference):
     scaler = MinMaxScaler(feature_range=(0,1))
     scaler.fit(dataReference)

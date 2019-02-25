@@ -17,22 +17,25 @@ HOLD = 2
 
 
 class ForexEnv(gym.Env):
-    def __init__(self, show_trade=True, type="Train", inputSymbol):
+    def __init__(self, inputSymbol, show_trade=True, type="train"):
         self.showTrade = show_trade
         self.actions = ["LONG", "SHORT", "FLAT"]
+        self.symbol = inputSymbol
         self.type = type
         ml_variables = FXUtils.getMLVariables()
         self.variables = ml_variables
         self.spread = float(ml_variables['Spread'])
-        data = FXDataProcess.ProcessedData(inputSymbol,train_test_predict=type)
+        self.window_size = int(ml_variables['WindowSize'])
+
+        data = FXDataProcess.ProcessedData(inputSymbol, train_test_predict=type)
         data.addSimpleFeatures()
         data.apply_normalization()
         self.df = data.df.values
         self.rawData = data.rawData
-
+        self.split_point = data.split_point
         # Features
         self.n_features = self.df.shape[1]
-        self.shape = (1, self.n_features + 4)
+        self.shape = (self.window_size, self.n_features + 4)
 
         # Action space and Observation space
         self.action_space = spaces.Discrete(len(self.actions))
@@ -60,65 +63,128 @@ class ForexEnv(gym.Env):
         if self.done:
             return self.state, self.reward, self.done, {}
 
-        self.reward = 0
+        #print("Action : ",action)
+        self.action = action
+        self.reward = 0.0
+        self.current_price = self.getPrice(self.current_tick, 'C')
 
-        if self.action == BUY:
+        if action == BUY:
             if self.position == FLAT:
                 self.position = LONG
                 self.entryPrice = self.getPrice(self.current_tick)
                 self.stopLoss = self.entryPrice - (self.BoxPips * self.OnePip)
                 self.takeProfit = self.entryPrice + (self.BoxPips * self.OnePip * self.RiskRewardRatio)
                 self.portfolio = self.balance + self.calculateProfit()
+                if self.type == "test":
+                    FXUtils.execute_query_db("INSERT INTO metaactions(Action,Time) VALUES('BUY','" + str(self.rawData.index[self.current_tick]) + "')")
 
-            elif self.position == SHORT:
-                self.reward = self.calculateProfit()
-                self.balance = self.balance + self.reward
+            elif self.position == SHORT and self.variables['UseTakeProfit'] != 'true':
+                profit = self.calculateProfit()
+                # self.reward += profit
+                self.balance = self.balance + profit
                 self.portfolio = self.balance
                 self.position = FLAT
                 self.sells += 1
-            else:
-                self.portfolio = self.balance + self.calculateProfit()
+                if profit < 0:
+                    self.lostSells += 1
 
-        elif self.action == SELL:
+
+            else:
+                self.updateBalance()
+
+        elif action == SELL:
             if self.position == FLAT:
                 self.position = SHORT
                 self.entryPrice = self.rawData.iloc[self.current_tick]['Close']
                 self.portfolio = self.balance + self.calculateProfit()
                 self.stopLoss = self.entryPrice + (self.BoxPips * self.OnePip)
                 self.takeProfit = self.entryPrice - (self.BoxPips * self.OnePip * self.RiskRewardRatio)
+                if self.type == "test":
+                    FXUtils.execute_query_db("INSERT INTO metaactions(Action,Time) VALUES('SELL','" + str(self.rawData.index[self.current_tick]) + "')")
 
-            elif self.position == LONG:
-                self.reward = self.calculateProfit()
-                self.balance = self.balance + self.reward
+            elif self.position == LONG and self.variables['UseTakeProfit'] != 'true':
+                profit = self.calculateProfit()
+                # self.reward += profit
+                self.balance = self.balance + profit
                 self.portfolio = self.balance
                 self.position = FLAT
                 self.buys += 1
+                if profit < 0:
+                    self.lostBuys += 1
             else:
-                self.portfolio = self.balance + self.calculateProfit()
+                self.updateBalance()
 
         else:
+            self.updateBalance()
+
+        self.reward = self.calculate_reward()
+
+        if self.showTrade and self.current_tick % 1000 == 0:
+            print("Tick : {0} / Portfolio : {1} / Balance : {2}".format(self.current_tick, self.portfolio, self.balance))
+            print("buys : {0} / {1} , sells : {2} / {3}".format((self.buys - self.lostBuys), self.lostBuys, (self.sells - self.lostSells), self.lostSells))
+        self.history.append((self.action, self.current_tick, self.current_price, self.portfolio, self.reward))
+
+        self.updateState()
+
+        if self.current_tick > (self.df.shape[0] - self.window_size - 1) or self.portfolio < (0.25 * self.starting_balance):
+            self.done = True
+            self.reward += self.calculateProfit()
+        self.current_tick += 1
+        return self.state, self.reward, self.done, {'portfolio': np.array([self.portfolio]),
+                                                    'buys': self.buys, 'lostBuys': self.lostBuys,
+                                                    'sells': self.sells, 'lostSells': self.lostSells}
+
+
+
+    def updateState(self):
+        one_hot_position = FXUtils.getOneHotEncoding(self.position, 3)
+        profit = self.calculateProfit()
+        # print("df : ", self.df[self.current_tick], " one hot : ",one_hot_position, " profit : ",[profit])
+        self.state = np.concatenate([self.df[self.current_tick], one_hot_position, [profit]])
+        return self.state
 
 
     def updateBalance(self):
         if self.position == LONG:
             if self.getPrice(self.current_tick,type='L') <= self.stopLoss:
-                self.reward = self.calculateProfit()
-                self.balance = self.balance + self.reward
+                profit = self.calculateProfit(type='S')
+                # self.reward += profit
+                self.balance = self.balance + profit
                 self.portfolio = self.balance
                 self.position = FLAT
                 self.buys += 1
                 self.lostBuys += 1
 
+            elif self.getPrice(self.current_tick, type='H') >= self.takeProfit and self.variables['UseTakeProfit'] == 'true':
+                profit = self.calculateProfit(type='T')
+                # self.reward += profit
+                self.balance = self.balance + profit
+                self.portfolio = self.balance
+                self.position = FLAT
+                self.buys += 1
+
+
         elif self.position == SHORT:
 
             if self.getPrice(self.current_tick,type='H') >= self.stopLoss:
-                self.reward = self.calculateProfit()
+                profit = self.calculateProfit(type='H')
+                # self.reward += profit
                 self.balance = self.balance + self.reward
                 self.portfolio = self.balance
                 self.position = FLAT
                 self.sells += 1
                 self.lostSells += 1
 
+            elif self.getPrice(self.current_tick, type='L') <= self.takeProfit and self.variables['UseTakeProfit'] == 'true':
+                profit = self.calculateProfit(type='T')
+                # self.reward += profit
+                self.balance = self.balance + self.reward
+                self.portfolio = self.balance
+                self.position = FLAT
+                self.sells += 1
+
+    def calculate_reward(self):
+        return self.portfolio - self.starting_balance
 
     def getPrice(self,index,type = 'C'):
         if type == 'O':
@@ -130,13 +196,21 @@ class ForexEnv(gym.Env):
         elif type == 'C':
             return self.rawData.iloc[index]['Close']
 
-    def calculateProfit(self):
+    def calculateProfit(self, type='C'):
+
+        if type == 'O' or type == 'H' or type =='L' or type == 'C':
+            curr_price = self.getPrice(self.current_tick, type=type)
+        elif type == 'T':
+            curr_price = self.takeProfit
+        elif type == 'S':
+            curr_price = self.stopLoss
+
         if self.position == LONG:
-            profit = (((self.rawData[self.current_tick] - self.entryPrice) / self.OnePip) - self.spread) * self.calculateQuanity() * self.PipVal
+            profit = (((curr_price - self.entryPrice) / self.OnePip) - self.spread) * self.calculateQuanity() * self.PipVal
         elif self.position == SHORT:
-            profit = (((self.entryPrice - self.rawData[self.current_tick]) / self.OnePip) - self.spread) * self.calculateQuanity() * self.PipVal
+            profit = (((self.entryPrice - curr_price) / self.OnePip) - self.spread) * self.calculateQuanity() * self.PipVal
         else:
-            profit = 0
+            profit = 0.
 
         return profit
 
@@ -146,7 +220,7 @@ class ForexEnv(gym.Env):
 
     def reset(self):
         self.current_tick = 0
-        print("Starting Episode : ",self.episode)
+        print("Starting Episode : ")
 
         # Positions
         self.buys = 0
@@ -157,6 +231,7 @@ class ForexEnv(gym.Env):
 
         # Clear the variables
         self.balance = float(self.variables['StartingBalance'])
+        self.starting_balance = self.balance
         self.portfolio = float(self.balance)
         self.profit = 0
 
@@ -164,4 +239,8 @@ class ForexEnv(gym.Env):
         self.position = FLAT
         self.done = False
 
+        self.history = []
 
+        self.updateState()
+        #print("State : ",self.state)
+        return self.state
