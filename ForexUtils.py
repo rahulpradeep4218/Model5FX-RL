@@ -72,8 +72,9 @@ def create_table_db(table_details):
     print("Create Table SQL : ",action_table_sql)
     execute_query_db(action_table_sql)
 
-def execute_query_db(sql_query):
-    sqlEng = getSQLEngine()
+def execute_query_db(sql_query, sqlEng=0):
+    if sqlEng == 0:
+        sqlEng = getSQLEngine()
     sqlEng.execute(sql_query)
 
 def getNormalizedData(dataReference):

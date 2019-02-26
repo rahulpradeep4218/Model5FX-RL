@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import ForexUtils as FXU
+import datetime
 
 print(np.array([1,2,3,4,5]))
 
@@ -40,5 +41,7 @@ print("index : ",df.index[1])
 
 arr = [1,2,3,4,5,6]
 index = [1,3,5]
-delArr = FXU.deleteFromList(x=arr,indexList=index)
+delArr = FXU.deleteFromList(x=arr, indexList=index)
 print(delArr)
+now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+FXU.execute_query_db("INSERT INTO reinforcetests(Symbol,Time,StartingBalance,TotalProfit) VALUES('EURUSD','{0}','100','2000')".format(now))

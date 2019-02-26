@@ -2,6 +2,7 @@
 import numpy as np
 import ForexUtils as FXU
 import os.path as ospath
+import datetime
 # Keras ML Imports
 from keras.models import Sequential
 from keras.layers import Dense, LSTM, Activation, Flatten
@@ -37,10 +38,11 @@ def create_model(shape, n_actions):
 
 def main():
     ml_variables = FXU.getMLVariables()
+    sqlEngine = FXU.getSQLEngine()
     actions_table_details = {'name':'metaactions', 'col':['Action', 'Time'], 'type':['VARCHAR(20)', 'datetime'], 'null': [False,False]}
     ### Clear the actions table
 
-    FXU.execute_query_db("DELETE FROM metaactions")
+    FXU.execute_query_db("DELETE FROM metaactions", sqlEngine)
     env = ForexEnv(type="train", inputSymbol="EURUSD", show_trade=True)
     env_test = ForexEnv(type="test", inputSymbol="EURUSD", show_trade=True)
 
@@ -77,11 +79,11 @@ def main():
             print("Total Profit : ", reward)
             if reward > int(max_reward) and int(reward) != 0:
                 max_reward = int(reward)
+                now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 #np.array([info.history]).dump('./info/duel_dqn_reward_{0}_{1}.info'.format(env_test.symbol, max_reward))
-                FXU.execute_query_db("INSERT INTO reinforcetests(Symbol,StartingBalance,TotalProfit) VALUES('{0}','{1}','{2}')".format(env_test.symbol, env_test.starting_balance, reward))
-                dqn.save_weights('./model/duel_dqn_reward_{0}_{1}.h5f'.format(env_test.symbol, max_reward),overwrite=True)
+                dqn.save_weights('./model/duel_dqn_reward_{0}_{1}.h5f'.format(env_test.symbol, max_reward), overwrite=True)
             #print("Info of testing : ",info.history)
-
+            FXU.execute_query_db("INSERT INTO reinforcetests(Symbol,StartingBalance,TotalProfit,Time) VALUES('{0}','{1}','{2}','{3}')".format(env_test.symbol, env_test.starting_balance, reward, now), sqlEngine)
             #n_buys, n_lostBuys, n_sells, n_lostSells, portfolio = info['buys'], info['lostBuys'], info['sells'], info['lostBuys']
             #np.array([info]).dump('./info/duel_dqn_{0}_weights_{1}LS_{2}_{3}.info'.format(env_test.symbol, portfolio, n_buys, n_sells))
         except KeyboardInterrupt:

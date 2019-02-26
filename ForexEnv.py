@@ -22,6 +22,7 @@ class ForexEnv(gym.Env):
         self.actions = ["LONG", "SHORT", "FLAT"]
         self.symbol = inputSymbol
         self.type = type
+        self.sqlEngine = FXUtils.getSQLEngine()
         ml_variables = FXUtils.getMLVariables()
         self.variables = ml_variables
         self.spread = float(ml_variables['Spread'])
@@ -35,7 +36,7 @@ class ForexEnv(gym.Env):
         self.split_point = data.split_point
         # Features
         self.n_features = self.df.shape[1]
-        self.shape = (self.window_size, self.n_features + 3)
+        self.shape = (self.window_size, self.n_features)
 
         # Action space and Observation space
         self.action_space = spaces.Discrete(len(self.actions))
@@ -77,7 +78,7 @@ class ForexEnv(gym.Env):
                 #self.takeProfit = self.entryPrice + (self.BoxPips * self.OnePip * self.RiskRewardRatio)
                 self.portfolio = self.balance + self.calculateTotalProfit()
                 if self.type == "test":
-                    FXUtils.execute_query_db("INSERT INTO metaactions(Action,Time) VALUES('BUY','" + str(self.rawData.index[self.current_tick]) + "')")
+                    FXUtils.execute_query_db("INSERT INTO metaactions(Action,Time) VALUES('BUY','" + str(self.rawData.index[self.current_tick]) + "')", self.sqlEngine)
 
             elif self.position == SHORT and self.variables['UseTakeProfit'] != 'true':
                 self.action = BUY
@@ -102,7 +103,7 @@ class ForexEnv(gym.Env):
                 self.stopLosses.append(self.current_price + (self.BoxPips * self.OnePip))
                 #self.takeProfit = self.entryPrice - (self.BoxPips * self.OnePip * self.RiskRewardRatio)
                 if self.type == "test":
-                    FXUtils.execute_query_db("INSERT INTO metaactions(Action,Time) VALUES('SELL','" + str(self.rawData.index[self.current_tick]) + "')")
+                    FXUtils.execute_query_db("INSERT INTO metaactions(Action,Time) VALUES('SELL','" + str(self.rawData.index[self.current_tick]) + "')", self.sqlEngine)
 
             elif self.position == LONG and self.variables['UseTakeProfit'] != 'true':
                 self.action = SELL
@@ -123,7 +124,9 @@ class ForexEnv(gym.Env):
         self.updateBalance()
 
         #self.reward = self.calculate_reward()
-        self.reward = self.reward / self.starting_balance
+        self.reward = (self.reward + self.balance - self.starting_balance) / self.starting_balance
+
+        self.current_tick += 1
 
         if self.showTrade and self.current_tick % 1000 == 0:
             print("Tick : {0} / Portfolio : {1} / Balance : {2} / Max Portfolio : {3}".format(self.current_tick, self.portfolio, self.balance, self.max_portfolio))
@@ -134,8 +137,8 @@ class ForexEnv(gym.Env):
 
         if self.current_tick > (self.df.shape[0] - self.window_size - 1):
             self.done = True
-            self.reward = self.calculate_reward()
-        self.current_tick += 1
+            # self.reward = self.calculate_reward()
+
         return self.state, self.reward, self.done, {'portfolio': np.array([self.portfolio]),
                                                     'buys': self.buys, 'lostBuys': self.lostBuys,
                                                     'sells': self.sells, 'lostSells': self.lostSells}
@@ -148,7 +151,8 @@ class ForexEnv(gym.Env):
         #profit = self.portfolio - self.starting_balance
         #print("df : ", self.df[self.current_tick], " one hot : ",one_hot_position)
 
-        self.state = np.concatenate([self.df[self.current_tick], one_hot_position])
+        # self.state = np.concatenate((self.df[self.current_tick], one_hot_position))
+        self.state = self.df[self.current_tick]
         return self.state
 
     def updateStopLoss(self, index):
