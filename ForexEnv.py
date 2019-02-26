@@ -132,7 +132,7 @@ class ForexEnv(gym.Env):
 
         self.updateState()
 
-        if self.current_tick > (self.df.shape[0] - self.window_size - 1) or self.portfolio < (0.1 * self.starting_balance):
+        if self.current_tick > (self.df.shape[0] - self.window_size - 1):
             self.done = True
             self.reward = self.calculate_reward()
         self.current_tick += 1
