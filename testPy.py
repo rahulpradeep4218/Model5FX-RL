@@ -36,3 +36,9 @@ print(df)
 df = pd.DataFrame({'BoolCol': [1,2,3,4,5]}, index=[10,20,30,40,50])
 
 print("index : ",df.index[1])
+
+
+arr = [1,2,3,4,5,6]
+index = [1,3,5]
+delArr = FXU.deleteFromList(x=arr,indexList=index)
+print(delArr)

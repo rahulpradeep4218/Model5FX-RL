@@ -84,3 +84,9 @@ def getNormalizedData(dataReference):
 
 def getOneHotEncoding(x, num_classes):
     return np.eye(num_classes)[x]
+
+def deleteFromList(x, indexList):
+    for ind in sorted(indexList, reverse=True):
+        del x[ind]
+
+    return x

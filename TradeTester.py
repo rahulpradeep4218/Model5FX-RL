@@ -56,8 +56,8 @@ def main():
 
     # enable the dueling network
     # you can specify the dueling_type to one of {'avg','max','naive'}
-    dqn = DQNAgent(model=model, nb_actions=n_actions, memory=memory, nb_steps_warmup=100, enable_dueling_network=True, dueling_type='naive', target_model_update=1e-2, policy=policy)
-    dqn.compile(Adam(lr=1e-4), metrics=['mse'])
+    dqn = DQNAgent(model=model, nb_actions=n_actions, memory=memory, nb_steps_warmup=100, enable_dueling_network=True, dueling_type='avg', target_model_update=1e-2, policy=policy)
+    dqn.compile(Adam(lr=1e-4), metrics=['mae'])
     if ml_variables['LoadWeights'] != 'no':
         path = 'model\\' + ml_variables['LoadWeights'] + ".h5f"
         if ospath.isfile(path):
@@ -74,11 +74,12 @@ def main():
             info = dqn.test(env_test, nb_episodes=1, visualize=False)
             #reward = info.history['episode_reward']
             reward = env_test.balance - env_test.starting_balance
-            print("reward : ", reward)
+            print("Total Profit : ", reward)
             if reward > int(max_reward) and int(reward) != 0:
                 max_reward = int(reward)
-                np.array([info.history]).dump('./info/duel_dqn_reward_{0}_{1}.info'.format(env_test.symbol, max_reward))
-                dqn.save_weights('./model/duel_dqn_reward_{0}_{1}.h5f'.format(env_test.symbol, max_reward))
+                #np.array([info.history]).dump('./info/duel_dqn_reward_{0}_{1}.info'.format(env_test.symbol, max_reward))
+                FXU.execute_query_db("INSERT INTO reinforcetests(Symbol,StartingBalance,TotalProfit) VALUES('{0}','{1}','{2}')".format(env_test.symbol, env_test.starting_balance, reward))
+                dqn.save_weights('./model/duel_dqn_reward_{0}_{1}.h5f'.format(env_test.symbol, max_reward),overwrite=True)
             #print("Info of testing : ",info.history)
 
             #n_buys, n_lostBuys, n_sells, n_lostSells, portfolio = info['buys'], info['lostBuys'], info['sells'], info['lostBuys']
